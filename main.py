@@ -2,10 +2,10 @@
 
 import os
 import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
-    Updater, CommandHandler, MessageHandler,
-    CallbackQueryHandler, CallbackContext, Filters, ConversationHandler
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters, ConversationHandler
 )
 
 from config import BOT_TOKEN, ADMIN_ID, BASE_DIR, MAX_BOTS
@@ -18,23 +18,42 @@ from database import (
 )
 from bot_manager import (
     extract_zip, start_bot, stop_bot, restart_bot,
-    is_running, get_logs, delete_bot_files, server_stats,
-    get_bot_type
+    is_running, get_logs, delete_bot_files, server_stats
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 WAITING_NAME = 1
-WAITING_FILE = 2
+WAITING_RENAME = 2
 
 os.makedirs(BASE_DIR, exist_ok=True)
 
 
-# ── Helpers ───────────────────────────────────────────────
+# ━━ Reply Keyboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def main_reply_keyboard():
+    """Main menu reply keyboard"""
+    keyboard = [
+        [KeyboardButton("📤 Upload Bot"), KeyboardButton("🤖 My Bots")],
+        [KeyboardButton("📊 Stats"), KeyboardButton("❓ Help")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
+def admin_reply_keyboard():
+    """Admin menu reply keyboard"""
+    keyboard = [
+        [KeyboardButton("📤 Upload Bot"), KeyboardButton("🤖 My Bots")],
+        [KeyboardButton("📊 Stats"), KeyboardButton("❓ Help")],
+        [KeyboardButton("🔐 Admin Panel")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
+
+# ━━ Helpers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def status_emoji(bot_id):
+    return "✅" if is_running(bot_id) else "❌"
 
 def check_banned(user_id):
     return is_banned(user_id)
@@ -42,243 +61,356 @@ def check_banned(user_id):
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-def get_main_keyboard(user_id):
-    """Reply Keyboard - মেইন মেনু"""
-    keyboard = [
-        [KeyboardButton("📤 বট আপলোড"), KeyboardButton("🤖 আমার বট")],
-        [KeyboardButton("📊 স্ট্যাটাস"), KeyboardButton("❓ হেল্প")],
-    ]
-    if is_admin(user_id):
-        keyboard.append([KeyboardButton("👑 অ্যাডমিন")])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def get_cancel_keyboard():
-    """Reply Keyboard - বাতিল"""
-    return ReplyKeyboardMarkup([[KeyboardButton("❌ বাতিল")]], resize_keyboard=True)
+# ━━ /start ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-
-# ── /start ────────────────────────────────────────────────
-
-def cmd_start(update: Update, context: CallbackContext):
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user.id, user.username or "", user.full_name)
-    context.user_data.clear()
 
     if check_banned(user.id):
-        update.message.reply_text("⛔ আপনি ব্যান হয়েছেন।")
+        await update.message.reply_text("🚫 আপনি ব্যান হয়েছেন।")
         return
 
     text = (
-        f"👋 স্বাগতম, <b>{user.full_name}</b>!\n\n"
+        f"🎉 স্বাগতম, <b>{user.full_name}</b>!\n\n"
         f"🚀 <b>TachZone Hosting Bot</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 <b>বট আপলোড করতে:</b> /upload"
+        f"আপনার Telegram Bot ফাইল আপলোড করুন,\n"
+        f"আমরা ২৪/৭ চালু রাখব!\n\n"
+        f"📋 <b>কমান্ড সমূহ:</b>\n"
+        f"• /upload — নতুন বট আপলোড\n"
+        f"• /mybots — আপনার বটগুলো দেখুন\n"
+        f"• /stats — সার্ভার অবস্থা\n"
+        f"• /help — সাহায্য\n\n"
+        f"নিচের বাটন ব্যবহার করুন 👇"
     )
-    
-    update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(user.id))
+
+    kb = admin_reply_keyboard() if is_admin(user.id) else main_reply_keyboard()
+    await update.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
 
 
-# ── /help ─────────────────────────────────────────────────
+# ━━ /help ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def cmd_help(update: Update, context: CallbackContext):
-    user = update.effective_user
+async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📖 <b>সাহায্য</b>\n"
+        "📚 <b>সাহায্য - TachZone Hosting</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "<b>বট আপলোড:</b>\n"
+        "<b>বট আপলোড করতে:</b>\n"
         "১. /upload দিন\n"
         "২. .zip, .py বা .js ফাইল পাঠান\n"
-        "৩. বটের নাম দিন\n\n"
-        "<b>কমান্ড:</b>\n"
-        "/mybots - আপনার বট\n"
-        "/stats - সার্ভার স্ট্যাটাস\n"
-        "/bot ID - বট কন্ট্রোল"
+        "৩. বটের নাম দিন\n"
+        "৪. অটো চালু হবে ✅\n\n"
+        "<b>বট কন্ট্রোল:</b>\n"
+        "• /mybots — সব বট দেখুন\n"
+        "• /stop TZ-0001 — বন্ধ করুন\n"
+        "• /startbot TZ-0001 — চালু করুন\n"
+        "• /restart TZ-0001 — restart করুন\n"
+        "• /logs TZ-0001 — log দেখুন\n"
+        "• /rename TZ-0001 নতুননাম — নাম বদলান\n"
+        "• /delete TZ-0001 — মুছে দিন\n\n"
+        "<b>সাপোর্টেড ফাইল:</b>\n"
+        "• Python (.py, .zip)\n"
+        "• JavaScript (.js, .zip)"
     )
-    update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(user.id))
+    kb = admin_reply_keyboard() if is_admin(update.effective_user.id) else main_reply_keyboard()
+    await update.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
 
 
-# ── /upload ───────────────────────────────────────────────
+# ━━ Reply Button Handler ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def cmd_upload(update: Update, context: CallbackContext):
+async def reply_button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle reply keyboard button presses"""
+    text = update.message.text
+
+    if text == "📤 Upload Bot":
+        await cmd_upload(update, ctx)
+    elif text == "🤖 My Bots":
+        await cmd_mybots(update, ctx)
+    elif text == "📊 Stats":
+        await cmd_stats(update, ctx)
+    elif text == "❓ Help":
+        await cmd_help(update, ctx)
+    elif text == "🔐 Admin Panel":
+        await cmd_adminpanel(update, ctx)
+
+
+# ━━ /upload ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def cmd_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
     if check_banned(user.id):
-        update.message.reply_text("⛔ আপনি ব্যান হয়েছেন।")
-        return ConversationHandler.END
+        return
 
     count = count_user_bots(user.id)
     if count >= MAX_BOTS:
-        update.message.reply_text(
-            f"⚠️ সর্বোচ্চ {MAX_BOTS}টা বট রাখা যাবে।",
-            reply_markup=get_main_keyboard(user.id)
+        await update.message.reply_text(
+            f"⚠️ সর্বোচ্চ {MAX_BOTS}টা বট রাখা যাবে।\n"
+            f"নতুন আপলোড করতে আগে /delete করুন।"
         )
-        return ConversationHandler.END
+        return
 
-    context.user_data['uploading'] = True
-    
-    update.message.reply_text(
-        "📁 .zip, .py বা .js ফাইল পাঠান\n<i>বাতিল করতে /cancel</i>",
-        parse_mode='HTML',
-        reply_markup=get_cancel_keyboard()
+    ctx.user_data['uploading'] = True
+    await update.message.reply_text(
+        "📁 এখন আপনার বটের <b>.zip</b>, <b>.py</b> বা <b>.js</b> ফাইল পাঠান।",
+        parse_mode='HTML'
     )
-    return WAITING_FILE
 
 
-# ── ফাইল গ্রহণ ───────────────────────────────────────────
+# ━━ File Handler ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def receive_file(update: Update, context: CallbackContext):
+async def file_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
     if check_banned(user.id):
-        return ConversationHandler.END
+        return
+
+    if not ctx.user_data.get('uploading'):
+        await update.message.reply_text("আগে /upload দিন।")
+        return
 
     doc = update.message.document
     if not doc:
-        update.message.reply_text("❌ ফাইল পাঠান।", reply_markup=get_cancel_keyboard())
-        return WAITING_FILE
+        return
 
-    fname = doc.file_name or "unknown"
-    
-    # ফাইল টাইপ চেক
-    allowed = ['.zip', '.py', '.js']
-    if not any(fname.lower().endswith(ext) for ext in allowed):
-        update.message.reply_text("❌ .zip, .py বা .js ফাইল দিন।", reply_markup=get_cancel_keyboard())
-        return WAITING_FILE
+    fname = doc.file_name or ""
+    if not (fname.endswith('.zip') or fname.endswith('.py') or fname.endswith('.js')):
+        await update.message.reply_text("❌ শুধু .zip, .py বা .js ফাইল দিন।")
+        return
 
-    status_msg = update.message.reply_text(f"⏳ ডাউনলোড হচ্ছে...\n{fname}")
+    msg = await update.message.reply_text("⏳ ফাইল নামাচ্ছি...")
 
-    try:
-        # ফোল্ডার তৈরি
-        bot_id = next_bot_id()
-        folder = os.path.join(BASE_DIR, str(user.id), "bots", bot_id)
-        os.makedirs(folder, exist_ok=True)
-        
-        # ফাইল ডাউনলোড
-        file = doc.get_file()
-        file_path = os.path.join(folder, fname)
-        file.download(file_path)
-        
-        # ZIP এক্সট্রাক্ট
-        if fname.lower().endswith('.zip'):
-            try:
-                extract_zip(file_path, folder)
-                os.remove(file_path)
-            except Exception as e:
-                status_msg.edit_text(f"❌ ZIP এরর: {str(e)[:100]}")
-                return ConversationHandler.END
+    # Download
+    bot_id = next_bot_id()
+    folder = os.path.join(BASE_DIR, str(user.id), "bots", bot_id)
+    os.makedirs(folder, exist_ok=True)
 
-        # ডাটা সেভ
-        context.user_data['pending_bot_id'] = bot_id
-        context.user_data['pending_folder'] = folder
+    file = await doc.get_file()
+    file_path = os.path.join(folder, fname)
+    await file.download_to_drive(file_path)
 
-        # ReplyKeyboard দিয়ে মেসেজ এডিট করা যাবে না, তাই নতুন মেসেজ
-        status_msg.edit_text(f"✅ ফাইল আপলোড সম্পন্ন!")
-        
-        update.message.reply_text(
-            "📝 এখন বটের <b>নাম</b> দিন:\n<i>বাতিল করতে /cancel</i>",
-            parse_mode='HTML',
-            reply_markup=get_cancel_keyboard()
-        )
-        return WAITING_NAME
+    # Extract if zip
+    if fname.endswith('.zip'):
+        try:
+            extract_zip(file_path, folder)
+            os.remove(file_path)
+        except Exception as e:
+            await msg.edit_text(f"❌ zip extract error: {e}")
+            return
 
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        update.message.reply_text(f"❌ এরর: {str(e)[:100]}", reply_markup=get_main_keyboard(user.id))
-        return ConversationHandler.END
+    ctx.user_data['pending_bot_id'] = bot_id
+    ctx.user_data['pending_folder'] = folder
+    ctx.user_data['uploading'] = False
+
+    await msg.edit_text(
+        f"✅ ফাইল আপলোড হয়েছে!\n\n"
+        f"📝 এখন আপনার বটের <b>নাম</b> দিন:\n"
+        f"(যেমন: MyShopBot, OTPBot)",
+        parse_mode='HTML'
+    )
+    return WAITING_NAME
 
 
-# ── নাম গ্রহণ এবং বট স্টার্ট ─────────────────────────────
-
-def receive_bot_name(update: Update, context: CallbackContext):
+async def get_bot_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     name = update.message.text.strip()
 
     if not name or len(name) > 30:
-        update.message.reply_text("❌ নাম ১-৩০ অক্ষরের মধ্যে দিন।", reply_markup=get_cancel_keyboard())
+        await update.message.reply_text("❌ নাম ১-৩০ অক্ষরের মধ্যে দিন।")
         return WAITING_NAME
 
-    bot_id = context.user_data.get('pending_bot_id')
-    folder = context.user_data.get('pending_folder')
+    bot_id = ctx.user_data.get('pending_bot_id')
+    folder = ctx.user_data.get('pending_folder')
 
     if not bot_id or not folder:
-        update.message.reply_text("❌ আবার /upload দিন।", reply_markup=get_main_keyboard(user.id))
+        await update.message.reply_text("❌ কিছু সমস্যা হয়েছে। আবার /upload দিন।")
         return ConversationHandler.END
 
-    # ডাটাবেজে সেভ
     add_bot(bot_id, user.id, name, folder)
 
-    msg = update.message.reply_text(f"⚙️ <b>{name}</b> চালু হচ্ছে...", parse_mode='HTML')
+    msg = await update.message.reply_text(f"⚙️ <b>{name}</b> চালু হচ্ছে...", parse_mode='HTML')
 
-    # বট স্টার্ট
     success, result = start_bot(bot_id)
 
     if success:
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ বট মেনু", callback_data=f"botmenu:{bot_id}")]])
-        msg.edit_text(
+        await msg.edit_text(
             f"🎉 <b>{name}</b> চালু হয়েছে!\n\n"
-            f"🆔 <code>{bot_id}</code>\n📦 {result}",
-            parse_mode='HTML',
-            reply_markup=kb
+            f"🆔 Bot ID: <code>{bot_id}</code>\n"
+            f"✅ Status: চলছে\n\n"
+            f"কন্ট্রোল করতে /mybots দিন।",
+            parse_mode='HTML'
         )
     else:
         update_bot_status(bot_id, 'stopped')
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📋 লগ দেখুন", callback_data=f"logs:{bot_id}")]])
-        msg.edit_text(
+        await msg.edit_text(
             f"⚠️ <b>{name}</b> চালু হয়নি!\n\n"
-            f"🆔 <code>{bot_id}</code>\n❌ {result[:200]}",
-            parse_mode='HTML',
-            reply_markup=kb
+            f"🆔 Bot ID: <code>{bot_id}</code>\n"
+            f"❌ Error: {result}\n\n"
+            f"ফাইল ঠিক করে আবার চেষ্টা করুন।\n"
+            f"/logs {bot_id} দিয়ে error দেখুন।",
+            parse_mode='HTML'
         )
-    
-    update.message.reply_text("✅ সম্পন্ন!", reply_markup=get_main_keyboard(user.id))
-    context.user_data.clear()
+
+    ctx.user_data.clear()
     return ConversationHandler.END
 
 
-# ── /cancel ───────────────────────────────────────────────
+# ━━ /mybots ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def cancel_upload(update: Update, context: CallbackContext):
+async def cmd_mybots(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    context.user_data.clear()
-    update.message.reply_text("❌ বাতিল করা হয়েছে।", reply_markup=get_main_keyboard(user.id))
-    return ConversationHandler.END
+    if check_banned(user.id):
+        return
 
-
-# ── /mybots ──────────────────────────────────────────────
-
-def cmd_mybots(update: Update, context: CallbackContext):
-    user = update.effective_user
     bots = get_user_bots(user.id)
-    
     if not bots:
-        update.message.reply_text(
-            "🤖 কোনো বট নেই।\n/upload দিয়ে আপলোড করুন।",
-            reply_markup=get_main_keyboard(user.id)
+        await update.message.reply_text(
+            "🤖 আপনার কোনো বট নেই।\n/upload দিয়ে আপলোড করুন।"
         )
         return
 
-    response = "🤖 <b>আপনার বটগুলো:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    text = "🤖 <b>আপনার বটগুলো:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
     buttons = []
-    
+
     for b in bots:
         running = is_running(b['bot_id'])
         emoji = "✅" if running else "❌"
         status = "চলছে" if running else "বন্ধ"
-        bot_type = get_bot_type(b['bot_id'])
-        response += f"{emoji} <b>{b['name']}</b> | <code>{b['bot_id']}</code> | {bot_type} | {status}\n"
-        buttons.append([InlineKeyboardButton(f"⚙️ {b['name']}", callback_data=f"botmenu:{b['bot_id']}")])
-    
-    update.message.reply_text(
-        response, 
-        parse_mode='HTML',
+        text += f"{emoji} <b>{b['name']}</b> | <code>{b['bot_id']}</code> | {status}\n"
+
+        buttons.append([
+            InlineKeyboardButton(f"⚙️ {b['name']}", callback_data=f"botmenu:{b['bot_id']}")
+        ])
+
+    await update.message.reply_text(
+        text, parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 
-# ── /stats ───────────────────────────────────────────────
+# ━━ Bot Menu (Inline Keyboard) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def cmd_stats(update: Update, context: CallbackContext):
-    user = update.effective_user
+async def bot_menu_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("botmenu:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        if not bot:
+            await query.edit_message_text("❌ বট পাওয়া যায়নি।")
+            return
+
+        running = is_running(bot_id)
+        emoji = "✅" if running else "❌"
+        status = "চলছে" if running else "বন্ধ"
+
+        text = (
+            f"⚙️ <b>{bot['name']}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🆔 ID: <code>{bot_id}</code>\n"
+            f"{emoji} Status: {status}\n"
+            f"📅 তৈরি: {bot['created_at'][:10]}\n"
+        )
+
+        kb = [
+            [
+                InlineKeyboardButton("▶️ চালু", callback_data=f"start:{bot_id}"),
+                InlineKeyboardButton("⏹ বন্ধ", callback_data=f"stop:{bot_id}"),
+                InlineKeyboardButton("🔄 Restart", callback_data=f"restart:{bot_id}"),
+            ],
+            [
+                InlineKeyboardButton("📋 Logs", callback_data=f"logs:{bot_id}"),
+                InlineKeyboardButton("✏️ Rename", callback_data=f"rename:{bot_id}"),
+                InlineKeyboardButton("🗑 Delete", callback_data=f"confirmdelete:{bot_id}"),
+            ],
+            [InlineKeyboardButton("🔙 পিছনে", callback_data="back")]
+        ]
+        await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("start:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        success, result = start_bot(bot_id)
+        msg = f"✅ <b>{bot['name']}</b> চালু হয়েছে!" if success else f"❌ চালু হয়নি: {result}"
+        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
+        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("stop:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        stop_bot(bot_id)
+        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
+        await query.edit_message_text(f"⏹ <b>{bot['name']}</b> বন্ধ হয়েছে।", parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("restart:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        await query.edit_message_text(f"🔄 <b>{bot['name']}</b> restart হচ্ছে...", parse_mode='HTML')
+        success, result = restart_bot(bot_id)
+        msg = f"✅ <b>{bot['name']}</b> restart হয়েছে!" if success else f"❌ restart হয়নি: {result}"
+        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
+        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("logs:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        logs = get_logs(bot_id, 30)
+        text = f"📋 <b>{bot['name']} - Logs:</b>\n<pre>{logs[-3000:]}</pre>"
+        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
+        await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("rename:"):
+        bot_id = data.split(":")[1]
+        ctx.user_data['renaming_bot'] = bot_id
+        await query.edit_message_text(
+            "✏️ নতুন নাম লিখুন:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল", callback_data="back")]])
+        )
+        return WAITING_RENAME
+
+    elif data.startswith("confirmdelete:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        kb = [
+            [
+                InlineKeyboardButton("✅ হ্যাঁ, মুছুন", callback_data=f"delete:{bot_id}"),
+                InlineKeyboardButton("❌ না", callback_data=f"botmenu:{bot_id}"),
+            ]
+        ]
+        await query.edit_message_text(
+            f"⚠️ <b>{bot['name']}</b> মুছে দেবেন?\nসব ফাইলও মুছে যাবে!",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+    elif data.startswith("delete:"):
+        bot_id = data.split(":")[1]
+        bot = get_bot(bot_id)
+        delete_bot_files(bot_id)
+        delete_bot(bot_id)
+        await query.edit_message_text(f"🗑 <b>{bot['name']}</b> মুছে গেছে।", parse_mode='HTML')
+
+    elif data == "back":
+        await query.edit_message_text("🔙 /mybots দিয়ে বট লিস্ট দেখুন।")
+
+
+async def get_rename(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    bot_id = ctx.user_data.get('renaming_bot')
+    new_name = update.message.text.strip()
+
+    if not bot_id:
+        return ConversationHandler.END
+
+    rename_bot(bot_id, new_name)
+    await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: <b>{new_name}</b>", parse_mode='HTML')
+    ctx.user_data.clear()
+    return ConversationHandler.END
+
+
+# ━━ /stats ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     s = server_stats()
     bots = get_all_bots()
     running = sum(1 for b in bots if is_running(b['bot_id']))
@@ -288,243 +420,291 @@ def cmd_stats(update: Update, context: CallbackContext):
         f"📊 <b>সার্ভার অবস্থা</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🖥 CPU: {s['cpu']}%\n"
-        f"💾 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
-        f"💿 Disk: {s['disk_used']}GB / {s['disk_total']}GB\n\n"
-        f"👥 ইউজার: {len(users)}\n"
-        f"🤖 বট: {len(bots)} (✅{running})"
+        f"💛 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
+        f"💾 Disk: {s['disk_used']}GB / {s['disk_total']}GB\n\n"
+        f"👥 মোট ইউজার: {len(users)}\n"
+        f"🤖 মোট বট: {len(bots)}\n"
+        f"✅ চলমান বট: {running}\n"
+        f"❌ বন্ধ বট: {len(bots) - running}"
     )
-    update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(user.id))
+    await update.message.reply_text(text, parse_mode='HTML')
 
 
-# ── /bot ─────────────────────────────────────────────────
+# ━━ কমান্ড দিয়ে বট কন্ট্রোল ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def cmd_bot(update: Update, context: CallbackContext):
+async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    args = context.args
-    
+    args = ctx.args
     if not args:
-        update.message.reply_text("ব্যবহার: /bot TZ-0001")
+        await update.message.reply_text("ব্যবহার: /stop TZ-0001")
         return
-    
     bot_id = args[0].upper()
     bot = get_bot(bot_id)
-    
-    if not bot or (bot['user_id'] != user.id and not is_admin(user.id)):
-        update.message.reply_text("❌ বট পাওয়া যায়নি।")
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
         return
-    
-    running = is_running(bot_id)
-    emoji = "✅" if running else "❌"
-    status = "চলছে" if running else "বন্ধ"
-    bot_type = get_bot_type(bot_id)
-    
-    text = (
-        f"⚙️ <b>{bot['name']}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <code>{bot_id}</code>\n"
-        f"📦 {bot_type}\n"
-        f"{emoji} {status}\n"
+    stop_bot(bot_id)
+    await update.message.reply_text(f"⏹ <b>{bot['name']}</b> বন্ধ হয়েছে।", parse_mode='HTML')
+
+async def cmd_startbot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("ব্যবহার: /startbot TZ-0001")
+        return
+    bot_id = args[0].upper()
+    bot = get_bot(bot_id)
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    success, result = start_bot(bot_id)
+    msg = f"✅ <b>{bot['name']}</b> চালু হয়েছে!" if success else f"❌ চালু হয়নি: {result}"
+    await update.message.reply_text(msg, parse_mode='HTML')
+
+async def cmd_restart(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("ব্যবহার: /restart TZ-0001")
+        return
+    bot_id = args[0].upper()
+    bot = get_bot(bot_id)
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    success, result = restart_bot(bot_id)
+    msg = f"✅ <b>{bot['name']}</b> restart হয়েছে!" if success else f"❌ restart হয়নি: {result}"
+    await update.message.reply_text(msg, parse_mode='HTML')
+
+async def cmd_logs(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("ব্যবহার: /logs TZ-0001")
+        return
+    bot_id = args[0].upper()
+    bot = get_bot(bot_id)
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    logs = get_logs(bot_id, 30)
+    await update.message.reply_text(
+        f"📋 <b>{bot['name']} - Logs:</b>\n<pre>{logs[-3000:]}</pre>",
+        parse_mode='HTML'
     )
 
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("▶️ চালু", callback_data=f"start:{bot_id}"),
-            InlineKeyboardButton("⏹ বন্ধ", callback_data=f"stop:{bot_id}"),
-        ],
-        [
-            InlineKeyboardButton("🔄 Restart", callback_data=f"restart:{bot_id}"),
-            InlineKeyboardButton("📋 Logs", callback_data=f"logs:{bot_id}"),
-        ],
-        [
-            InlineKeyboardButton("🗑 Delete", callback_data=f"confirmdelete:{bot_id}"),
-        ],
-    ])
-    
-    update.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
+async def cmd_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("ব্যবহার: /delete TZ-0001")
+        return
+    bot_id = args[0].upper()
+    bot = get_bot(bot_id)
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    delete_bot_files(bot_id)
+    delete_bot(bot_id)
+    await update.message.reply_text(f"🗑 <b>{bot['name']}</b> মুছে গেছে।", parse_mode='HTML')
+
+async def cmd_rename(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    args = ctx.args
+    if len(args) < 2:
+        await update.message.reply_text("ব্যবহার: /rename TZ-0001 নতুননাম")
+        return
+    bot_id = args[0].upper()
+    new_name = args[1]
+    bot = get_bot(bot_id)
+    if not bot or bot['user_id'] != user.id:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    rename_bot(bot_id, new_name)
+    await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: <b>{new_name}</b>", parse_mode='HTML')
 
 
-# ── Bot Menu Callback ────────────────────────────────────
+# ━━ Admin Commands ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def bot_menu_callback(update: Update, context: CallbackContext):
+async def cmd_adminpanel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+
+    s = server_stats()
+    users = get_all_users()
+    bots = get_all_bots()
+    running = sum(1 for b in bots if is_running(b['bot_id']))
+
+    text = (
+        f"🔐 <b>Admin Panel — TachZone Hosting</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 মোট ইউজার: {len(users)}\n"
+        f"🤖 চলমান বট: {running} / {len(bots)}\n"
+        f"🖥 CPU: {s['cpu']}% | RAM: {s['ram_used']}GB/{s['ram_total']}GB\n"
+        f"💾 Disk: {s['disk_used']}GB/{s['disk_total']}GB"
+    )
+    kb = [
+        [
+            InlineKeyboardButton("👥 ইউজার লিস্ট", callback_data="admin:users"),
+            InlineKeyboardButton("🤖 বট লিস্ট", callback_data="admin:bots"),
+        ],
+        [InlineKeyboardButton("📊 সার্ভার স্ট্যাটস", callback_data="admin:stats")]
+    ]
+    await update.message.reply_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+
+async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    if not is_admin(query.from_user.id):
+        return
+    await query.answer()
     data = query.data
 
-    if data.startswith("botmenu:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        if not bot:
-            query.edit_message_text("❌ বট পাওয়া যায়নি।")
-            return
-
-        running = is_running(bot_id)
-        emoji = "✅" if running else "❌"
-        status = "চলছে" if running else "বন্ধ"
-        bot_type = get_bot_type(bot_id)
-
-        text = (
-            f"⚙️ <b>{bot['name']}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🆔 <code>{bot_id}</code>\n"
-            f"📦 {bot_type}\n"
-            f"{emoji} {status}\n"
-        )
-
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("▶️ চালু", callback_data=f"start:{bot_id}"),
-                InlineKeyboardButton("⏹ বন্ধ", callback_data=f"stop:{bot_id}"),
-            ],
-            [
-                InlineKeyboardButton("🔄 Restart", callback_data=f"restart:{bot_id}"),
-                InlineKeyboardButton("📋 Logs", callback_data=f"logs:{bot_id}"),
-            ],
-            [
-                InlineKeyboardButton("🗑 Delete", callback_data=f"confirmdelete:{bot_id}"),
-            ],
-        ])
-        query.edit_message_text(text, parse_mode='HTML', reply_markup=kb)
-
-    elif data.startswith("start:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        success, result = start_bot(bot_id)
-        msg = f"✅ চালু হয়েছে!" if success else f"❌ {result[:100]}"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 ফিরুন", callback_data=f"botmenu:{bot_id}")]])
-        query.edit_message_text(msg, reply_markup=kb)
-
-    elif data.startswith("stop:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        stop_bot(bot_id)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 ফিরুন", callback_data=f"botmenu:{bot_id}")]])
-        query.edit_message_text(f"⏹ বন্ধ হয়েছে", reply_markup=kb)
-
-    elif data.startswith("restart:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        query.edit_message_text(f"🔄 Restart হচ্ছে...")
-        success, result = restart_bot(bot_id)
-        msg = f"✅ Restart হয়েছে!" if success else f"❌ {result[:100]}"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 ফিরুন", callback_data=f"botmenu:{bot_id}")]])
-        query.edit_message_text(msg, reply_markup=kb)
-
-    elif data.startswith("logs:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        logs = get_logs(bot_id, 30)
-        text = f"📋 <b>{bot['name']}</b>\n<pre>{logs[-1500:]}</pre>" if logs else "📭 লগ নেই"
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 রিফ্রেশ", callback_data=f"logs:{bot_id}")],
-            [InlineKeyboardButton("🔙 ফিরুন", callback_data=f"botmenu:{bot_id}")]
-        ])
-        query.edit_message_text(text, parse_mode='HTML', reply_markup=kb)
-
-    elif data.startswith("confirmdelete:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        kb = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅ হ্যাঁ", callback_data=f"delete:{bot_id}"),
-                InlineKeyboardButton("❌ না", callback_data=f"botmenu:{bot_id}"),
-            ]
-        ])
-        query.edit_message_text(f"⚠️ <b>{bot['name']}</b> মুছে দেবেন?", parse_mode='HTML', reply_markup=kb)
-
-    elif data.startswith("delete:"):
-        bot_id = data.split(":")[1]
-        bot = get_bot(bot_id)
-        delete_bot_files(bot_id)
-        delete_bot(bot_id)
-        query.edit_message_text(f"🗑 মুছে গেছে")
-
-
-# ── Message Handler ──────────────────────────────────────
-
-def handle_message(update: Update, context: CallbackContext):
-    user = update.effective_user
-    text = update.message.text
-    
-    if check_banned(user.id):
-        update.message.reply_text("⛔ আপনি ব্যান হয়েছেন।")
-        return
-
-    register_user(user.id, user.username or "", user.full_name)
-    
-    if context.user_data.get('uploading'):
-        return
-
-    if text == "📤 বট আপলোড":
-        update.message.reply_text("📤 /upload কমান্ড দিন।", reply_markup=get_main_keyboard(user.id))
-
-    elif text == "🤖 আমার বট":
-        cmd_mybots(update, context)
-
-    elif text == "📊 স্ট্যাটাস":
-        cmd_stats(update, context)
-
-    elif text == "❓ হেল্প":
-        cmd_help(update, context)
-
-    elif text == "👑 অ্যাডমিন":
-        if not is_admin(user.id):
-            update.message.reply_text("⛔ অ্যাডমিন নন!")
-            return
-        s = server_stats()
+    if data == "admin:users":
         users = get_all_users()
+        text = "👥 <b>সব ইউজার:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        for u in users[:20]:
+            bots = get_user_bots(u['user_id'])
+            banned = "🚫" if u['banned'] else "✅"
+            name = u['full_name'] or "Unknown"
+            text += f"{banned} <b>{name}</b> | ID: <code>{u['user_id']}</code> | 🤖 {len(bots)}টা\n"
+        await query.edit_message_text(text, parse_mode='HTML')
+
+    elif data == "admin:bots":
         bots = get_all_bots()
-        running = sum(1 for b in bots if is_running(b['bot_id']))
+        text = "🤖 <b>সব বট:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+        for b in bots[:20]:
+            running = is_running(b['bot_id'])
+            emoji = "✅" if running else "❌"
+            text += f"{emoji} <b>{b['name']}</b> | <code>{b['bot_id']}</code> | UID: {b['user_id']}\n"
+        await query.edit_message_text(text, parse_mode='HTML')
+
+    elif data == "admin:stats":
+        s = server_stats()
         text = (
-            f"👑 <b>Admin Panel</b>\n"
-            f"👥 ইউজার: {len(users)}\n"
-            f"🤖 বট: {running}/{len(bots)}\n"
+            f"📊 <b>সার্ভার স্ট্যাটস:</b>\n"
             f"🖥 CPU: {s['cpu']}%\n"
-            f"💾 RAM: {s['ram_used']}GB/{s['ram_total']}GB"
+            f"💛 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
+            f"💾 Disk: {s['disk_used']}GB / {s['disk_total']}GB"
         )
-        update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(user.id))
+        await query.edit_message_text(text, parse_mode='HTML')
 
-    elif text == "❌ বাতিল":
-        context.user_data.clear()
-        update.message.reply_text("✅ বাতিল করা হয়েছে।", reply_markup=get_main_keyboard(user.id))
+async def cmd_ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    args = ctx.args
+    if not args: return
+    uid = int(args[0])
+    ban_user(uid)
+    await update.message.reply_text(f"🚫 {uid} ব্যান হয়েছে।")
+
+async def cmd_unban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    args = ctx.args
+    if not args: return
+    uid = int(args[0])
+    unban_user(uid)
+    await update.message.reply_text(f"✅ {uid} আনব্যান হয়েছে।")
+
+async def cmd_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    if not ctx.args:
+        await update.message.reply_text("ব্যবহার: /broadcast মেসেজ")
+        return
+    msg = ' '.join(ctx.args)
+    users = get_all_users()
+    sent = 0
+    for u in users:
+        try:
+            await ctx.bot.send_message(u['user_id'], f"📢 <b>TachZone:</b>\n{msg}", parse_mode='HTML')
+            sent += 1
+        except Exception:
+            pass
+    await update.message.reply_text(f"✅ {sent}জনকে পাঠানো হয়েছে।")
+
+async def cmd_killbot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    args = ctx.args
+    if not args: return
+    bot_id = args[0].upper()
+    bot = get_bot(bot_id)
+    if not bot:
+        await update.message.reply_text("❌ বট পাওয়া যায়নি।")
+        return
+    stop_bot(bot_id)
+    await update.message.reply_text(f"⏹ <b>{bot['name']}</b> ({bot_id}) বন্ধ হয়েছে।", parse_mode='HTML')
+
+async def cmd_allbots(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    bots = get_all_bots()
+    text = "🤖 <b>সব বট:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    for b in bots:
+        running = is_running(b['bot_id'])
+        emoji = "✅" if running else "❌"
+        text += f"{emoji} <b>{b['name']}</b> | <code>{b['bot_id']}</code>\n"
+    await update.message.reply_text(text or "কোনো বট নেই।", parse_mode='HTML')
+
+async def cmd_allusers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    users = get_all_users()
+    text = "👥 <b>সব ইউজার:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    for u in users:
+        banned = "🚫" if u['banned'] else "✅"
+        text += f"{banned} <b>{u['full_name']}</b> | <code>{u['user_id']}</code>\n"
+    await update.message.reply_text(text or "কোনো ইউজার নেই।", parse_mode='HTML')
 
 
-# ── Main ─────────────────────────────────────────────────
+# ━━ Main ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def main():
     init_db()
-    
-    updater = Updater(BOT_TOKEN)
-    dp = updater.dispatcher
+    app = Application.builder().token(BOT_TOKEN).build()
 
+    # Conversation handler
     conv = ConversationHandler(
-        entry_points=[CommandHandler("upload", cmd_upload)],
+        entry_points=[
+            MessageHandler(filters.Document.ALL, file_handler),
+        ],
         states={
-            WAITING_FILE: [
-                MessageHandler(Filters.document, receive_file),
-                CommandHandler("cancel", cancel_upload),
-            ],
-            WAITING_NAME: [
-                MessageHandler(Filters.text & ~Filters.command, receive_bot_name),
-                CommandHandler("cancel", cancel_upload),
-            ],
+            WAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bot_name)],
+            WAITING_RENAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rename)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_upload)],
-        allow_reentry=True
+        fallbacks=[CommandHandler("start", cmd_start)],
+        per_user=True,
     )
 
-    dp.add_handler(CommandHandler("start", cmd_start))
-    dp.add_handler(CommandHandler("help", cmd_help))
-    dp.add_handler(CommandHandler("mybots", cmd_mybots))
-    dp.add_handler(CommandHandler("stats", cmd_stats))
-    dp.add_handler(CommandHandler("bot", cmd_bot))
-    
-    dp.add_handler(conv)
-    dp.add_handler(CallbackQueryHandler(bot_menu_callback))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    # Reply button handler — must be before conv handler
+    REPLY_BUTTONS = ["📤 Upload Bot", "🤖 My Bots", "📊 Stats", "❓ Help", "🔐 Admin Panel"]
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(f"^({'|'.join(REPLY_BUTTONS)})$"),
+        reply_button_handler
+    ))
 
-    logger.info("🚀 TachZone Hosting Bot Started!")
-    updater.start_polling(drop_pending_updates=True)
-    updater.idle()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("upload", cmd_upload))
+    app.add_handler(CommandHandler("mybots", cmd_mybots))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("stop", cmd_stop))
+    app.add_handler(CommandHandler("startbot", cmd_startbot))
+    app.add_handler(CommandHandler("restart", cmd_restart))
+    app.add_handler(CommandHandler("logs", cmd_logs))
+    app.add_handler(CommandHandler("delete", cmd_delete))
+    app.add_handler(CommandHandler("rename", cmd_rename))
+
+    # Admin
+    app.add_handler(CommandHandler("adminpanel", cmd_adminpanel))
+    app.add_handler(CommandHandler("ban", cmd_ban))
+    app.add_handler(CommandHandler("unban", cmd_unban))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("killbot", cmd_killbot))
+    app.add_handler(CommandHandler("allbots", cmd_allbots))
+    app.add_handler(CommandHandler("allusers", cmd_allusers))
+
+    app.add_handler(conv)
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin:"))
+    app.add_handler(CallbackQueryHandler(bot_menu_callback))
+
+    logger.info("🚀 TachZone Hosting Bot চালু হয়েছে!")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
