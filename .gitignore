@@ -1,1 +1,9 @@
 
+__pycache__/
+*.pyc
+*.db
+bots/
+*.log
+.env
+.DS_Store
+node_modules/
