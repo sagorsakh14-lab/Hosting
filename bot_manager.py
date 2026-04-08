@@ -145,13 +145,33 @@ def start_bot(bot_id):
         else:
             return False, "অজানা বট টাইপ"
 
-        proc = subprocess.Popen(
-            cmd,
-            cwd=folder,
-            stdout=open(log_file, 'a'),
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
-        )
+        # log file আগে থেকে তৈরি করো
+        os.makedirs(folder, exist_ok=True)
+        log_f = open(log_file, 'a', encoding='utf-8')
+
+        kwargs = dict(cwd=folder, stdout=log_f, stderr=log_f)
+        if os.name == 'nt':
+            kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs['start_new_session'] = True
+
+        proc = subprocess.Popen(cmd, **kwargs)
+
+        # ২ সেকেন্ড অপেক্ষা করে দেখো process আছে কিনা
+        import time
+        time.sleep(2)
+        log_f.flush()
+
+        if proc.poll() is not None:
+            # process মরে গেছে — log থেকে error দেখাও
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    err = f.read()[-800:]
+            except Exception:
+                err = "log পড়া যায়নি"
+            update_bot_status(bot_id, 'stopped')
+            return False, f"বট চালু হয়েই বন্ধ:\n{err}"
+
         update_bot_status(bot_id, 'running', proc.pid)
         return True, proc.pid
 
