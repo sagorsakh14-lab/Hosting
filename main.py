@@ -2,7 +2,7 @@
 
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters, ConversationHandler
@@ -30,27 +30,7 @@ WAITING_RENAME = 2
 os.makedirs(BASE_DIR, exist_ok=True)
 
 
-# ━━ Reply Keyboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def main_reply_keyboard():
-    """Main menu reply keyboard"""
-    keyboard = [
-        [KeyboardButton("📤 Upload Bot"), KeyboardButton("🤖 My Bots")],
-        [KeyboardButton("📊 Stats"), KeyboardButton("❓ Help")],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-
-def admin_reply_keyboard():
-    """Admin menu reply keyboard"""
-    keyboard = [
-        [KeyboardButton("📤 Upload Bot"), KeyboardButton("🤖 My Bots")],
-        [KeyboardButton("📊 Stats"), KeyboardButton("❓ Help")],
-        [KeyboardButton("🔐 Admin Panel")],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-
-
-# ━━ Helpers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── Helpers ───────────────────────────────────────────────
 
 def status_emoji(bot_id):
     return "✅" if is_running(bot_id) else "❌"
@@ -62,43 +42,40 @@ def is_admin(user_id):
     return user_id == ADMIN_ID
 
 
-# ━━ /start ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── /start ────────────────────────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     register_user(user.id, user.username or "", user.full_name)
 
     if check_banned(user.id):
-        await update.message.reply_text("🚫 আপনি ব্যান হয়েছেন।")
+        await update.message.reply_text("⛔ আপনি ব্যান হয়েছেন।")
         return
 
     text = (
-        f"🎉 স্বাগতম, <b>{user.full_name}</b>!\n\n"
+        f"👋 স্বাগতম, <b>{user.full_name}</b>!\n\n"
         f"🚀 <b>TachZone Hosting Bot</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"আপনার Telegram Bot ফাইল আপলোড করুন,\n"
         f"আমরা ২৪/৭ চালু রাখব!\n\n"
-        f"📋 <b>কমান্ড সমূহ:</b>\n"
+        f"📌 <b>কমান্ড সমূহ:</b>\n"
         f"• /upload — নতুন বট আপলোড\n"
         f"• /mybots — আপনার বটগুলো দেখুন\n"
         f"• /stats — সার্ভার অবস্থা\n"
-        f"• /help — সাহায্য\n\n"
-        f"নিচের বাটন ব্যবহার করুন 👇"
+        f"• /help — সাহায্য"
     )
-
-    kb = admin_reply_keyboard() if is_admin(user.id) else main_reply_keyboard()
-    await update.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
+    await update.message.reply_text(text, parse_mode='HTML')
 
 
-# ━━ /help ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── /help ─────────────────────────────────────────────────
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📚 <b>সাহায্য - TachZone Hosting</b>\n"
+        "📖 <b>সাহায্য - TachZone Hosting</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "<b>বট আপলোড করতে:</b>\n"
         "১. /upload দিন\n"
-        "২. .zip, .py বা .js ফাইল পাঠান\n"
+        "২. .zip বা .py ফাইল পাঠান\n"
         "৩. বটের নাম দিন\n"
         "৪. অটো চালু হবে ✅\n\n"
         "<b>বট কন্ট্রোল:</b>\n"
@@ -108,34 +85,12 @@ async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• /restart TZ-0001 — restart করুন\n"
         "• /logs TZ-0001 — log দেখুন\n"
         "• /rename TZ-0001 নতুননাম — নাম বদলান\n"
-        "• /delete TZ-0001 — মুছে দিন\n\n"
-        "<b>সাপোর্টেড ফাইল:</b>\n"
-        "• Python (.py, .zip)\n"
-        "• JavaScript (.js, .zip)"
+        "• /delete TZ-0001 — মুছে দিন\n"
     )
-    kb = admin_reply_keyboard() if is_admin(update.effective_user.id) else main_reply_keyboard()
-    await update.message.reply_text(text, parse_mode='HTML', reply_markup=kb)
+    await update.message.reply_text(text, parse_mode='HTML')
 
 
-# ━━ Reply Button Handler ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-async def reply_button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle reply keyboard button presses"""
-    text = update.message.text
-
-    if text == "📤 Upload Bot":
-        await cmd_upload(update, ctx)
-    elif text == "🤖 My Bots":
-        await cmd_mybots(update, ctx)
-    elif text == "📊 Stats":
-        await cmd_stats(update, ctx)
-    elif text == "❓ Help":
-        await cmd_help(update, ctx)
-    elif text == "🔐 Admin Panel":
-        await cmd_adminpanel(update, ctx)
-
-
-# ━━ /upload ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── /upload ───────────────────────────────────────────────
 
 async def cmd_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -152,12 +107,12 @@ async def cmd_upload(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     ctx.user_data['uploading'] = True
     await update.message.reply_text(
-        "📁 এখন আপনার বটের <b>.zip</b>, <b>.py</b> বা <b>.js</b> ফাইল পাঠান।",
+        "📁 এখন আপনার বটের <b>.zip</b> বা <b>.py</b> ফাইল পাঠান।",
         parse_mode='HTML'
     )
 
 
-# ━━ File Handler ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── File Handler ──────────────────────────────────────────
 
 async def file_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -173,8 +128,8 @@ async def file_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     fname = doc.file_name or ""
-    if not (fname.endswith('.zip') or fname.endswith('.py') or fname.endswith('.js')):
-        await update.message.reply_text("❌ শুধু .zip, .py বা .js ফাইল দিন।")
+    if not (fname.endswith('.zip') or fname.endswith('.py')):
+        await update.message.reply_text("❌ শুধু .zip বা .py ফাইল দিন।")
         return
 
     msg = await update.message.reply_text("⏳ ফাইল নামাচ্ছি...")
@@ -254,7 +209,7 @@ async def get_bot_name(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ━━ /mybots ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── /mybots ───────────────────────────────────────────────
 
 async def cmd_mybots(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -287,7 +242,7 @@ async def cmd_mybots(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ━━ Bot Menu (Inline Keyboard) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── Bot Menu (Inline Keyboard) ────────────────────────────
 
 async def bot_menu_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -333,15 +288,13 @@ async def bot_menu_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         bot = get_bot(bot_id)
         success, result = start_bot(bot_id)
         msg = f"✅ <b>{bot['name']}</b> চালু হয়েছে!" if success else f"❌ চালু হয়নি: {result}"
-        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
-        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(msg, parse_mode='HTML')
 
     elif data.startswith("stop:"):
         bot_id = data.split(":")[1]
         bot = get_bot(bot_id)
         stop_bot(bot_id)
-        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
-        await query.edit_message_text(f"⏹ <b>{bot['name']}</b> বন্ধ হয়েছে।", parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(f"⏹ <b>{bot['name']}</b> বন্ধ হয়েছে।", parse_mode='HTML')
 
     elif data.startswith("restart:"):
         bot_id = data.split(":")[1]
@@ -349,16 +302,14 @@ async def bot_menu_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔄 <b>{bot['name']}</b> restart হচ্ছে...", parse_mode='HTML')
         success, result = restart_bot(bot_id)
         msg = f"✅ <b>{bot['name']}</b> restart হয়েছে!" if success else f"❌ restart হয়নি: {result}"
-        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
-        await query.edit_message_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(msg, parse_mode='HTML')
 
     elif data.startswith("logs:"):
         bot_id = data.split(":")[1]
         bot = get_bot(bot_id)
         logs = get_logs(bot_id, 30)
         text = f"📋 <b>{bot['name']} - Logs:</b>\n<pre>{logs[-3000:]}</pre>"
-        kb = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data=f"botmenu:{bot_id}")]]
-        await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text(text, parse_mode='HTML')
 
     elif data.startswith("rename:"):
         bot_id = data.split(":")[1]
@@ -408,7 +359,7 @@ async def get_rename(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# ━━ /stats ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── /stats ────────────────────────────────────────────────
 
 async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     s = server_stats()
@@ -420,8 +371,8 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📊 <b>সার্ভার অবস্থা</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🖥 CPU: {s['cpu']}%\n"
-        f"💛 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
-        f"💾 Disk: {s['disk_used']}GB / {s['disk_total']}GB\n\n"
+        f"💾 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
+        f"💿 Disk: {s['disk_used']}GB / {s['disk_total']}GB\n\n"
         f"👥 মোট ইউজার: {len(users)}\n"
         f"🤖 মোট বট: {len(bots)}\n"
         f"✅ চলমান বট: {running}\n"
@@ -430,7 +381,7 @@ async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode='HTML')
 
 
-# ━━ কমান্ড দিয়ে বট কন্ট্রোল ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── কমান্ড দিয়ে বট কন্ট্রোল ─────────────────────────────
 
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -524,7 +475,7 @@ async def cmd_rename(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ নাম পরিবর্তন হয়েছে: <b>{new_name}</b>", parse_mode='HTML')
 
 
-# ━━ Admin Commands ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── Admin Commands ────────────────────────────────────────
 
 async def cmd_adminpanel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -536,12 +487,12 @@ async def cmd_adminpanel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     running = sum(1 for b in bots if is_running(b['bot_id']))
 
     text = (
-        f"🔐 <b>Admin Panel — TachZone Hosting</b>\n"
+        f"👑 <b>Admin Panel — TachZone Hosting</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 মোট ইউজার: {len(users)}\n"
         f"🤖 চলমান বট: {running} / {len(bots)}\n"
         f"🖥 CPU: {s['cpu']}% | RAM: {s['ram_used']}GB/{s['ram_total']}GB\n"
-        f"💾 Disk: {s['disk_used']}GB/{s['disk_total']}GB"
+        f"💿 Disk: {s['disk_used']}GB/{s['disk_total']}GB"
     )
     kb = [
         [
@@ -564,7 +515,7 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = "👥 <b>সব ইউজার:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
         for u in users[:20]:
             bots = get_user_bots(u['user_id'])
-            banned = "🚫" if u['banned'] else "✅"
+            banned = "⛔" if u['banned'] else "✅"
             name = u['full_name'] or "Unknown"
             text += f"{banned} <b>{name}</b> | ID: <code>{u['user_id']}</code> | 🤖 {len(bots)}টা\n"
         await query.edit_message_text(text, parse_mode='HTML')
@@ -583,8 +534,8 @@ async def admin_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = (
             f"📊 <b>সার্ভার স্ট্যাটস:</b>\n"
             f"🖥 CPU: {s['cpu']}%\n"
-            f"💛 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
-            f"💾 Disk: {s['disk_used']}GB / {s['disk_total']}GB"
+            f"💾 RAM: {s['ram_used']}GB / {s['ram_total']}GB\n"
+            f"💿 Disk: {s['disk_used']}GB / {s['disk_total']}GB"
         )
         await query.edit_message_text(text, parse_mode='HTML')
 
@@ -594,7 +545,7 @@ async def cmd_ban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not args: return
     uid = int(args[0])
     ban_user(uid)
-    await update.message.reply_text(f"🚫 {uid} ব্যান হয়েছে।")
+    await update.message.reply_text(f"⛔ {uid} ব্যান হয়েছে।")
 
 async def cmd_unban(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
@@ -647,12 +598,12 @@ async def cmd_allusers(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     users = get_all_users()
     text = "👥 <b>সব ইউজার:</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
     for u in users:
-        banned = "🚫" if u['banned'] else "✅"
+        banned = "⛔" if u['banned'] else "✅"
         text += f"{banned} <b>{u['full_name']}</b> | <code>{u['user_id']}</code>\n"
     await update.message.reply_text(text or "কোনো ইউজার নেই।", parse_mode='HTML')
 
 
-# ━━ Main ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ── Main ──────────────────────────────────────────────────
 
 def main():
     init_db()
@@ -670,13 +621,6 @@ def main():
         fallbacks=[CommandHandler("start", cmd_start)],
         per_user=True,
     )
-
-    # Reply button handler — must be before conv handler
-    REPLY_BUTTONS = ["📤 Upload Bot", "🤖 My Bots", "📊 Stats", "❓ Help", "🔐 Admin Panel"]
-    app.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(f"^({'|'.join(REPLY_BUTTONS)})$"),
-        reply_button_handler
-    ))
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
