@@ -66,8 +66,10 @@ def install_requirements(folder, bot_type):
     if bot_type == 'python':
         req = os.path.join(folder, 'requirements.txt')
         if os.path.exists(req):
+            # pip3 আগে, না থাকলে pip
+            pip_cmd = 'pip3' if shutil.which('pip3') else 'pip'
             subprocess.run(
-                ['pip', 'install', '-r', req, '-q'],
+                [pip_cmd, 'install', '-r', req, '-q'],
                 timeout=120
             )
 
@@ -84,6 +86,18 @@ def install_requirements(folder, bot_type):
 def get_node_path():
     """Node.js এর path খোঁজে"""
     for path in ['node', '/usr/bin/node', '/usr/local/bin/node']:
+        try:
+            result = subprocess.run([path, '--version'], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return path
+        except Exception:
+            continue
+    return None
+
+
+def get_python_path():
+    """Python এর সঠিক path খোঁজে — python3 আগে, তারপর python"""
+    for path in ['python3', 'python', '/usr/bin/python3', '/usr/local/bin/python3']:
         try:
             result = subprocess.run([path, '--version'], capture_output=True, timeout=5)
             if result.returncode == 0:
@@ -117,7 +131,10 @@ def start_bot(bot_id):
 
     try:
         if bot_type == 'python':
-            cmd = ['python', '-u', main_file]
+            python_path = get_python_path()
+            if not python_path:
+                return False, "Python ইন্সটল নেই সার্ভারে!"
+            cmd = [python_path, '-u', main_file]
 
         elif bot_type == 'node':
             node_path = get_node_path()
